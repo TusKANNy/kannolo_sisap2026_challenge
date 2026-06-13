@@ -279,3 +279,7 @@ $RECYCLE.BIN/
 
 # Notebooks for personal tests
 /other_notebooks
+
+# SISAP task3 build/search outputs
+/sisap_indexes
+/results

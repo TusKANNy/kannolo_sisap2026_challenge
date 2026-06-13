@@ -36,6 +36,9 @@ use pyo3::{Bound, PyResult, pymodule};
 pub mod graph;
 pub mod visited_set;
 
+#[cfg(feature = "sisap")]
+pub mod sisap;
+
 pub mod indexes;
 pub use indexes::{hnsw, hnsw_utils};
 
