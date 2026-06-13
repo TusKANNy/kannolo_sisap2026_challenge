@@ -49,6 +49,16 @@ where
     Ok(dataset.into())
 }
 
+/// Reads the gold-standard `knns` dataset (1-based ids) from `<group_name>/knns`,
+/// returning the flat row-major ids together with the number of columns (k_gold).
+pub fn read_gold_knns_h5(path: &str, group_name: &str) -> hdf5::Result<(Vec<i64>, usize)> {
+    let file = File::open(path)?;
+    let dataset = file.dataset(&format!("{group_name}/knns"))?;
+    let k_gold = dataset.shape()[1];
+    let knns: Vec<i64> = dataset.read_raw::<i32>()?.iter().map(|&x| x as i64).collect();
+    Ok((knns, k_gold))
+}
+
 /// Writes the SISAP2026 Task 3 result file: an n x k `knns` matrix (1-based ids) and
 /// `dists` matrix, plus the required root attributes.
 #[allow(clippy::too_many_arguments)]

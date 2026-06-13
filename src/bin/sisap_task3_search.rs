@@ -4,9 +4,11 @@ use clap::Parser;
 use half::f16;
 use rayon::prelude::*;
 
+use std::collections::HashSet;
+
 use kannolo::graph::Graph;
 use kannolo::hnsw::{HNSW, HNSWSearchConfiguration};
-use kannolo::sisap::{read_sparse_csr_h5, write_results_h5};
+use kannolo::sisap::{read_gold_knns_h5, read_sparse_csr_h5, write_results_h5};
 use vectorium::IndexSerializer;
 use vectorium::core::index::Index;
 use vectorium::distances::{Distance, DotProduct};
@@ -88,6 +90,15 @@ fn main() {
     let num_queries = queries.len();
     let queries_vec: Vec<_> = queries.iter().collect();
 
+    let gt_group = args.query_group.rsplit_once('/').map_or(
+        args.query_group.as_str(),
+        |(parent, _)| parent,
+    );
+    let gold = read_gold_knns_h5(&args.h5_file, gt_group).ok();
+    if gold.is_none() {
+        println!("No gold standard found at group '{gt_group}/knns'; skipping recall report.");
+    }
+
     std::fs::create_dir_all(&args.output_dir).unwrap_or_else(|e| {
         eprintln!("Error creating output directory: {e:?}");
         std::process::exit(1);
@@ -148,6 +159,26 @@ fn main() {
             std::process::exit(1);
         });
 
-        println!("ef_search={ef_search}: querytime={querytime:.4}s -> {output_path}");
+        let avg_query_time_us = querytime * 1e6 / num_queries as f64;
+
+        if let Some((gold_knns, k_gold)) = &gold {
+            let kk = args.k.min(*k_gold);
+            let sum_recall: f64 = (0..num_queries)
+                .map(|i| {
+                    let pred: HashSet<i64> = knns[i * args.k..i * args.k + kk].iter().copied().collect();
+                    let truth: HashSet<i64> =
+                        gold_knns[i * k_gold..i * k_gold + kk].iter().copied().collect();
+                    pred.intersection(&truth).count() as f64 / kk as f64
+                })
+                .sum();
+            let recall = sum_recall / num_queries as f64;
+            println!(
+                "ef_search={ef_search}: avg_query_time={avg_query_time_us:.2} us, recall@{kk}={recall:.4}, querytime={querytime:.4}s -> {output_path}"
+            );
+        } else {
+            println!(
+                "ef_search={ef_search}: avg_query_time={avg_query_time_us:.2} us, querytime={querytime:.4}s -> {output_path}"
+            );
+        }
     }
 }
