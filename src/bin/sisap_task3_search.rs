@@ -1,18 +1,26 @@
+use std::io::Write;
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use half::f16;
 use rayon::prelude::*;
 
 use std::collections::HashSet;
 
 use kannolo::graph::Graph;
-use kannolo::hnsw::{HNSW, HNSWSearchConfiguration};
+use kannolo::hnsw::{EarlyTerminationStrategy, HNSW, HNSWSearchConfiguration};
 use kannolo::sisap::{read_gold_knns_h5, read_sparse_csr_h5, write_results_h5};
 use vectorium::IndexSerializer;
 use vectorium::core::index::Index;
 use vectorium::distances::{Distance, DotProduct};
 use vectorium::{Dataset, PlainSparseDataset};
+
+#[derive(Debug, Clone, ValueEnum, Default)]
+enum EarlyTerminationArg {
+    #[default]
+    None,
+    DistanceAdaptive,
+}
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -59,6 +67,26 @@ struct Args {
     #[clap(long, value_parser)]
     #[arg(default_value_t = 150)]
     ef_construction: usize,
+
+    /// Early termination strategy for search.
+    #[clap(long, value_enum)]
+    #[arg(default_value_t = EarlyTerminationArg::None)]
+    early_termination: EarlyTerminationArg,
+
+    /// Lambda parameter for the DistanceAdaptive early termination strategy.
+    #[clap(long, value_parser)]
+    #[arg(default_value_t = 1.0)]
+    lambda: f32,
+
+    /// If set, skip writing the per-config result HDF5 files (useful for grid searches).
+    #[clap(long, action)]
+    skip_h5: bool,
+
+    /// If set, append one row per ef_search value to this TSV file with columns:
+    /// ef_search, lambda, Accuracy, Query Time (microsecs), Memory Usage (Bytes),
+    /// Building Time (secs). A header is written if the file does not exist yet.
+    #[clap(long, value_parser)]
+    tsv_output: Option<String>,
 }
 
 fn main() {
@@ -104,12 +132,43 @@ fn main() {
         std::process::exit(1);
     });
 
+    let early_termination = match args.early_termination {
+        EarlyTerminationArg::None => EarlyTerminationStrategy::None,
+        EarlyTerminationArg::DistanceAdaptive => EarlyTerminationStrategy::DistanceAdaptive {
+            lambda: args.lambda,
+        },
+    };
+
+    let index_size_bytes: u64 = std::fs::metadata(&args.index_file).map(|m| m.len()).unwrap_or(0);
+
+    let mut tsv_file = args.tsv_output.as_ref().map(|path| {
+        let write_header = !std::path::Path::new(path).exists();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap_or_else(|e| {
+                eprintln!("Error opening TSV output file: {e:?}");
+                std::process::exit(1);
+            });
+        if write_header {
+            writeln!(
+                file,
+                "ef_search\tlambda\tAccuracy\tQuery Time (microsecs)\tMemory Usage (Bytes)\tBuilding Time (secs)"
+            )
+            .unwrap();
+        }
+        file
+    });
+
     for ef_search_str in args.ef_search.split(',') {
         let ef_search: usize = ef_search_str
             .trim()
             .parse()
             .expect("invalid ef_search value");
-        let config = HNSWSearchConfiguration::default().with_ef_search(ef_search);
+        let config = HNSWSearchConfiguration::default()
+            .with_ef_search(ef_search)
+            .with_early_termination(early_termination);
 
         let start_time = Instant::now();
         let results: Vec<_> = queries_vec
@@ -133,35 +192,44 @@ fn main() {
             }
         }
 
+        let (et_params, et_suffix) = match args.early_termination {
+            EarlyTerminationArg::None => (String::new(), String::new()),
+            EarlyTerminationArg::DistanceAdaptive => (
+                format!(",earlyTermination=distanceAdaptive,lambda={}", args.lambda),
+                format!("_lambda{}", args.lambda),
+            ),
+        };
         let params = format!(
-            "M={},efConstruction={},efSearch={}",
+            "M={},efConstruction={},efSearch={}{et_params}",
             args.m, args.ef_construction, ef_search
         );
         let output_path = format!(
-            "{}/{}_M{}_efC{}_efS{}.h5",
+            "{}/{}_M{}_efC{}_efS{}{et_suffix}.h5",
             args.output_dir, args.algo_name, args.m, args.ef_construction, ef_search
         );
 
-        write_results_h5(
-            &output_path,
-            &knns,
-            &dists,
-            num_queries,
-            args.k,
-            &args.algo_name,
-            "task3",
-            buildtime,
-            querytime,
-            &params,
-        )
-        .unwrap_or_else(|e| {
-            eprintln!("Error writing results file: {e:?}");
-            std::process::exit(1);
-        });
+        if !args.skip_h5 {
+            write_results_h5(
+                &output_path,
+                &knns,
+                &dists,
+                num_queries,
+                args.k,
+                &args.algo_name,
+                "task3",
+                buildtime,
+                querytime,
+                &params,
+            )
+            .unwrap_or_else(|e| {
+                eprintln!("Error writing results file: {e:?}");
+                std::process::exit(1);
+            });
+        }
 
         let avg_query_time_us = querytime * 1e6 / num_queries as f64;
 
-        if let Some((gold_knns, k_gold)) = &gold {
+        let recall = gold.as_ref().map(|(gold_knns, k_gold)| {
             let kk = args.k.min(*k_gold);
             let sum_recall: f64 = (0..num_queries)
                 .map(|i| {
@@ -171,7 +239,10 @@ fn main() {
                     pred.intersection(&truth).count() as f64 / kk as f64
                 })
                 .sum();
-            let recall = sum_recall / num_queries as f64;
+            (sum_recall / num_queries as f64, kk)
+        });
+
+        if let Some((recall, kk)) = recall {
             println!(
                 "ef_search={ef_search}: avg_query_time={avg_query_time_us:.2} us, recall@{kk}={recall:.4}, querytime={querytime:.4}s -> {output_path}"
             );
@@ -179,6 +250,16 @@ fn main() {
             println!(
                 "ef_search={ef_search}: avg_query_time={avg_query_time_us:.2} us, querytime={querytime:.4}s -> {output_path}"
             );
+        }
+
+        if let Some(file) = tsv_file.as_mut() {
+            let recall_val = recall.map_or(f64::NAN, |(r, _)| r);
+            writeln!(
+                file,
+                "{ef_search}\t{}\t{recall_val:.6}\t{avg_query_time_us:.4}\t{index_size_bytes}\t{buildtime:.6}",
+                args.lambda
+            )
+            .unwrap();
         }
     }
 }

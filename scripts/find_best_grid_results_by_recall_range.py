@@ -41,30 +41,32 @@ import argparse
 import os
 
 def find_best_by_metric_range(df, metric_col='Recall', space_limit=None, metric_min=0.90, metric_max=0.995, step=0.005):
-    ranges = []
-    start = metric_min
-    while start < metric_max:
-        end = min(start + step, metric_max)
-        ranges.append((start, end))
-        start = end
+    targets = []
+    target = metric_min
+    while target < metric_max:
+        targets.append(target)
+        target += step
 
     selected_rows = []
     to_print = []
 
     target_col_name = f'Target {metric_col}'
 
-    for mmin, mmax in ranges:
-        subset = df[(df[metric_col] >= mmin) & (df[metric_col] < mmax)]
-        print(f"🔍 Processing {metric_col} range: [{mmin:.3f}, {mmax:.3f}) with {len(subset)} candidates")
+    for target in targets:
+        # Best (lowest query time) config among all that reach at least `target`
+        # accuracy. Using ">=" (rather than a half-open bucket) guarantees the
+        # resulting query time is monotonically non-decreasing in `target`.
+        subset = df[df[metric_col] >= target]
+        print(f"🔍 Processing {metric_col} >= {target:.3f} with {len(subset)} candidates")
         if space_limit is not None:
             subset = subset[subset['Memory Usage (Bytes)'] <= space_limit]
         if not subset.empty:
             best_row = subset.loc[subset['Query Time (microsecs)'].idxmin()].copy()
-            best_row[target_col_name] = mmin
+            best_row[target_col_name] = target
             selected_rows.append(best_row)
             metric_val = best_row[metric_col]
             to_print.append(f"{metric_col}={metric_val:.4f}, Query Time={best_row['Query Time (microsecs)']}μs, Memory={best_row['Memory Usage (Bytes)']}B")
-        
+
 
     result_df = pd.DataFrame(selected_rows)
     if not result_df.empty:

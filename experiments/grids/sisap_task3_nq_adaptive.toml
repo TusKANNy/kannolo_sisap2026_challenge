@@ -1,0 +1,38 @@
+name =          "grid_sisap_task3_nq_adaptive"
+title =         "SISAP2026 Task 3 - NQ HNSW distance-adaptive grid search"
+description =   "Grid search over ef_search and lambda (distance-adaptive early termination) for each pre-built NQ HNSW index"
+dataset =       "nq"
+dataset-type =   "sparse"
+component-type = "u16"
+value-type =     "f16"
+build-command = "./target/release/sisap_task3_build"
+query-command = "./target/release/sisap_task3_search"
+encoder       =     "plain"
+graph-type =    "standard"
+
+[settings]
+k =             30
+build =         false  # Indexes are already built (see build_nq_indexes.sh)
+metric =        "dotproduct"
+
+[folder]
+data =          "/data3/silvio/sisap2026/datasets/nq/nq.h5"
+index =         "/data3/silvio/sisap2026/indexes/"
+experiment =    "results/task3/grids"
+
+[indexing_parameters]
+m =            [32]
+ef-construction = [500, 1000, 2000]
+
+[querying_parameters]
+early-termination = ["distance-adaptive"]
+# ef_search in [30, 45] step 1 (fine grid, second pass)
+ef-search = [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]
+# lambda in [0.02, 0.15] step 0.01 (fine grid, second pass)
+lambda = [0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15]
+
+# Run with RAYON_NUM_THREADS=1 so query time reflects true sequential latency,
+# not parallel-batch wall-clock divided by num_queries.
+
+# Accuracy targets used by scripts/find_best_grid_results_by_recall_range.py:
+# --metric-min 0.875 --metric-max 0.950 --step 0.005
