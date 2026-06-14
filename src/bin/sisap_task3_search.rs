@@ -104,6 +104,18 @@ fn main() {
         )
         .unwrap();
 
+    // If the index was built with `--reorder-egb`, a `<index_file>.permutation` sidecar
+    // file maps ground-level/dataset ids back to the original (pre-reordering) ids.
+    let ground_inverse_permutation: Option<Vec<usize>> =
+        std::fs::read(format!("{}.permutation", args.index_file))
+            .ok()
+            .map(|bytes| {
+                bytes
+                    .chunks_exact(8)
+                    .map(|c| u64::from_le_bytes(c.try_into().unwrap()) as usize)
+                    .collect()
+            });
+
     println!(
         "Reading queries from {} (group: {})",
         args.h5_file, args.query_group
@@ -182,7 +194,11 @@ fn main() {
         for res in &results {
             let mut found = 0;
             for scored in res.iter().take(args.k) {
-                knns.push(scored.vector as i64 + 1);
+                let original_id = match &ground_inverse_permutation {
+                    Some(inv) => inv[scored.vector as usize],
+                    None => scored.vector as usize,
+                };
+                knns.push(original_id as i64 + 1);
                 dists.push(scored.distance.distance());
                 found += 1;
             }

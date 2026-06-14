@@ -6,7 +6,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use crate::graph::{GraphTrait, GrowableGraph};
+use crate::graph::{Graph, GraphTrait, GrowableGraph};
 use vectorium::IndexSerializer;
 use vectorium::core::dataset::{ConvertFrom, ConvertInto, ScoredItemGeneric};
 use vectorium::core::index::Index;
@@ -248,6 +248,99 @@ where
     #[must_use]
     pub fn nodes_per_level(&self) -> Vec<usize> {
         self.levels.iter().map(|g| g.n_nodes()).collect()
+    }
+}
+
+impl<D> HNSW<D, Graph>
+where
+    D: Dataset,
+{
+    /// Reorders the ground level (and, via `make_dataset`, the dataset) using an EGB
+    /// (recursive graph bisection) permutation computed from the ground-level graph's
+    /// adjacency lists, to improve cache locality during search. Upper HNSW levels are
+    /// remapped to remain nested prefixes of the new ground-level ordering.
+    ///
+    /// `make_dataset(&self.dataset, &permutation)` must return a dataset where vector
+    /// `permutation[old_id]` holds the same vector as the original dataset's `old_id`.
+    ///
+    /// Returns the reordered index together with the ground-level inverse permutation
+    /// (`new_id -> old_id`), which callers should persist separately (e.g. as a sidecar
+    /// file) and use to translate search results back into the original id space.
+    pub fn reorder_by_egb<F>(&self, make_dataset: F) -> (HNSW<D, Graph>, Vec<usize>)
+    where
+        F: FnOnce(&D, &[usize]) -> D,
+    {
+        let ground = &self.levels[self.levels.len() - 1];
+        let permutation = crate::permutation::compute_egb_permutation(ground);
+        self.remap_with_permutation(&permutation, make_dataset)
+    }
+
+    /// Applies `permutation` (`old_id -> new_id`) to all graph levels and (via
+    /// `make_dataset`) the dataset. Returns the remapped index and the ground-level
+    /// inverse permutation (`new_id -> old_id`).
+    fn remap_with_permutation<F>(
+        &self,
+        permutation: &[usize],
+        make_dataset: F,
+    ) -> (HNSW<D, Graph>, Vec<usize>)
+    where
+        F: FnOnce(&D, &[usize]) -> D,
+    {
+        let last = self.levels.len() - 1;
+        let mut new_levels: Vec<Graph> = Vec::with_capacity(self.levels.len());
+
+        let mut level1_to_level0_mapping: Box<[usize]> = Box::from([]);
+        let mut entry_point = self.entry_point;
+        let mut ground_inv: Vec<usize> = Vec::new();
+        let mut previous_old_globals_in_new_order: Vec<usize> = Vec::new();
+
+        for (i, level) in self.levels.iter().enumerate() {
+            if i == last {
+                let (ground, inv) = level.remap_ground_with_permutation(permutation);
+                ground_inv = inv;
+                new_levels.push(ground);
+            } else {
+                let old_locals_by_new_local =
+                    crate::permutation::upper_level_order_preserving_hnsw_prefixes(
+                        level,
+                        permutation,
+                        &previous_old_globals_in_new_order,
+                    );
+                let (remapped_level, local_mapping) =
+                    level.remap_level_with_old_local_order(&old_locals_by_new_local, permutation);
+
+                previous_old_globals_in_new_order = old_locals_by_new_local
+                    .iter()
+                    .map(|&old_local| level.get_external_id(old_local))
+                    .collect();
+
+                if i == 0 {
+                    entry_point = local_mapping[self.entry_point];
+                }
+                if i + 1 == last {
+                    level1_to_level0_mapping = (0..remapped_level.n_nodes())
+                        .map(|id| remapped_level.get_external_id(id))
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+                }
+
+                new_levels.push(remapped_level);
+            }
+        }
+
+        if self.levels.len() == 1 {
+            entry_point = permutation[self.entry_point];
+        }
+
+        let hnsw = HNSW {
+            levels: new_levels.into_boxed_slice(),
+            level1_to_level0_mapping,
+            dataset: make_dataset(&self.dataset, permutation),
+            num_neighbors_per_vec: self.num_neighbors_per_vec,
+            entry_point,
+        };
+
+        (hnsw, ground_inv)
     }
 }
 

@@ -28,6 +28,7 @@ numpy       = { version = "0.24.0", optional = true }
 ndarray     = { version = "0.16", optional = true }
 ndarray-npy = { version = "0.9", optional = true }
 hdf5        = { version = "0.8", optional = true }
+rgb         = { git = "https://github.com/JMMackenzie/enhanced-graph-bisection.git", package = "rgbisect", optional = true }
 
 
 [features]
@@ -36,7 +37,7 @@ use-libxsmm  = []
 multivec     = ["vectorium/multivec"]
 python       = ["dep:pyo3", "dep:numpy", "dep:ndarray", "dep:ndarray-npy"]
 cli          = ["dep:clap", "dep:ndarray", "dep:ndarray-npy"]
-sisap        = ["dep:clap", "dep:hdf5"]
+sisap        = ["dep:clap", "dep:hdf5", "dep:rgb"]
 
 [[bin]]
 name = "hnsw_build"

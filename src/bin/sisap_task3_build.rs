@@ -5,9 +5,10 @@ use half::f16;
 
 use kannolo::graph::Graph;
 use kannolo::hnsw::{HNSW, HNSWBuildConfiguration};
+use kannolo::permutation::invert_mapping;
 use kannolo::sisap::read_sparse_csr_h5;
 use vectorium::IndexSerializer;
-use vectorium::PlainSparseDataset;
+use vectorium::{Dataset, DatasetGrowable, PlainSparseDataset, PlainSparseDatasetGrowable, VectorId};
 use vectorium::core::index::Index;
 use vectorium::distances::DotProduct;
 
@@ -36,6 +37,11 @@ struct Args {
     #[clap(long, value_parser)]
     #[arg(default_value_t = 150)]
     ef_construction: usize,
+
+    /// Reorder the ground level and dataset using EGB graph bisection for better
+    /// cache locality during search. Experimental.
+    #[clap(long, action)]
+    reorder_egb: bool,
 }
 
 fn main() {
@@ -66,6 +72,27 @@ fn main() {
     let index: HNSW<PlainSparseDataset<u16, f16, DotProduct>, Graph> =
         HNSW::build_index(dataset, &config);
 
+    let (index, ground_inverse_permutation) = if args.reorder_egb {
+        println!("Reordering index with EGB graph bisection...");
+        let reorder_start = Instant::now();
+        let (reordered, ground_inv) = index.reorder_by_egb(|dataset, permutation| {
+            let old_id_by_new_id = invert_mapping(permutation);
+            let mut permuted =
+                PlainSparseDatasetGrowable::<u16, f16, DotProduct>::new(dataset.encoder().clone());
+            for old_id in old_id_by_new_id {
+                permuted.push(dataset.get(old_id as VectorId));
+            }
+            permuted.into()
+        });
+        println!(
+            "Time to reorder with EGB: {} s",
+            reorder_start.elapsed().as_secs_f64()
+        );
+        (reordered, Some(ground_inv))
+    } else {
+        (index, None)
+    };
+
     let build_time = start_time.elapsed();
     println!(
         "Time to build index (load + build): {} s",
@@ -78,4 +105,15 @@ fn main() {
     std::fs::write(&buildtime_path, build_time.as_secs_f64().to_string()).unwrap_or_else(|e| {
         eprintln!("Warning: could not write buildtime sidecar file: {e:?}");
     });
+
+    if let Some(ground_inv) = ground_inverse_permutation {
+        let permutation_path = format!("{}.permutation", args.output_file);
+        let bytes: Vec<u8> = ground_inv
+            .iter()
+            .flat_map(|&id| (id as u64).to_le_bytes())
+            .collect();
+        std::fs::write(&permutation_path, bytes).unwrap_or_else(|e| {
+            eprintln!("Warning: could not write permutation sidecar file: {e:?}");
+        });
+    }
 }

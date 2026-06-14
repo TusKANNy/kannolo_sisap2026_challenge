@@ -34,6 +34,7 @@ use pyo3::prelude::PyModule;
 use pyo3::{Bound, PyResult, pymodule};
 
 pub mod graph;
+pub mod permutation;
 pub mod visited_set;
 
 #[cfg(feature = "sisap")]

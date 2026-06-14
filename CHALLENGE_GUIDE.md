@@ -32,10 +32,12 @@ Reads the `train` CSR group directly from HDF5 (no intermediate conversion) and 
 | `--output-file`, `-o` | required | Path for the serialized index. |
 | `--m` | 16 | HNSW `M`. |
 | `--ef-construction` | 150 | HNSW `ef_construction`. |
+| `--reorder-egb` | off | After building, reorder the ground level + dataset via EGB (recursive graph bisection) for better cache locality. ~2-3% faster search at the same recall, for a small one-time cost (~1 minute on NQ). |
 
 **Produces:**
 - `<output-file>` — serialized HNSW index (bincode, `PlainSparseDataset<u16, f16, DotProduct>` — component ids narrowed to `u16`, values to `f16`).
 - `<output-file>.buildtime` — sidecar text file with load+build wall-clock time (seconds, `f64`), consumed by `sisap_task3_search` for the `buildtime` attr.
+- `<output-file>.permutation` — only if `--reorder-egb` was used: binary sidecar (`n` little-endian `u64`s) mapping reordered ids back to original doc ids. `sisap_task3_search` loads it automatically (if present) and remaps result ids before writing output, so this is transparent to callers.
 
 ## `sisap_task3_search`
 
@@ -86,7 +88,7 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release --features cli
   --h5-file /data3/silvio/sisap2026/datasets/<name>/<name>.h5 \
   --group train \
   --output-file /data3/silvio/sisap2026/indexes/<name>.hnsw \
-  --m <M> --ef-construction <efC>
+  --m <M> --ef-construction <efC> --reorder-egb
 
 ./target/release/sisap_task3_search \
   --h5-file /data3/silvio/sisap2026/datasets/<name>/<name>.h5 \
