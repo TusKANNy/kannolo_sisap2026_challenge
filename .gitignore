@@ -284,3 +284,4 @@ $RECYCLE.BIN/
 # SISAP task3 build/search outputs
 /sisap_indexes
 /results
+/results_nq_docker
