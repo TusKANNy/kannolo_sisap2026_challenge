@@ -1,0 +1,7 @@
+target/
+results/
+*.log
+*.hnsw
+*.hnsw.*
+kannolo_permutation/
+.git/
