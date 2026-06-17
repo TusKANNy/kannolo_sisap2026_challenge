@@ -5,29 +5,29 @@
 //! permutation, of the dataset itself), then provides helpers to apply that
 //! permutation to an `HNSW` index's graph levels.
 
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 use rayon::prelude::*;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 use rgb::forward::Doc;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 use rgb::recursive_graph_bisection;
 use std::collections::HashMap;
 
 use crate::graph::GraphTrait;
 
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 const ITERATIONS: usize = 10;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 const MIN_PARTITION_SIZE: usize = 64;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 const MAX_DEPTH: usize = 100;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 const PARALLEL_SWITCH: usize = 100;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 const DEPTH_LIMIT: usize = 1;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 const SORT_LEAF: bool = true;
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 const ID: usize = 1;
 
 /// Inverts a permutation. Given `p` where `p[old_id] = new_id`, returns `q` where
@@ -61,7 +61,7 @@ pub fn validate_permutation(p: &[usize]) -> Result<(), String> {
 
 /// Computes an EGB (recursive graph bisection) permutation `old_id -> new_id` from
 /// the adjacency lists of `graph`.
-#[cfg(feature = "sisap")]
+#[cfg(feature = "egb")]
 pub fn compute_egb_permutation<G>(graph: &G) -> Vec<usize>
 where
     G: GraphTrait + Sync,

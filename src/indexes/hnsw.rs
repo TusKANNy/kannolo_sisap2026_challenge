@@ -266,6 +266,7 @@ where
     /// Returns the reordered index together with the ground-level inverse permutation
     /// (`new_id -> old_id`), which callers should persist separately (e.g. as a sidecar
     /// file) and use to translate search results back into the original id space.
+    #[cfg(feature = "egb")]
     pub fn reorder_by_egb<F>(&self, make_dataset: F) -> (HNSW<D, Graph>, Vec<usize>)
     where
         F: FnOnce(&D, &[usize]) -> D,

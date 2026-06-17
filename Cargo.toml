@@ -37,7 +37,8 @@ use-libxsmm  = []
 multivec     = ["vectorium/multivec"]
 python       = ["dep:pyo3", "dep:numpy", "dep:ndarray", "dep:ndarray-npy"]
 cli          = ["dep:clap", "dep:ndarray", "dep:ndarray-npy"]
-sisap        = ["dep:clap", "dep:hdf5", "dep:rgb"]
+sisap        = ["dep:clap", "dep:hdf5"]
+egb          = ["dep:rgb"]
 
 [[bin]]
 name = "hnsw_build"
@@ -57,7 +58,7 @@ required-features = ["cli", "multivec"]
 [[bin]]
 name = "sisap_task3_build"
 path = "src/bin/sisap_task3_build.rs"
-required-features = ["sisap"]
+required-features = ["sisap", "egb"]
 
 [[bin]]
 name = "sisap_task3_search"
