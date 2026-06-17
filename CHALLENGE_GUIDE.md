@@ -111,7 +111,7 @@ Constraints (`SISAP_cfp.md`): 8 vCPUs, 24 GB RAM, 8h wall-clock total (build inc
 `-C target-cpu=native` must target the CPU that will actually *run* the search (the challenge's AMD EPYC 7F72, Zen 2 — no AVX-512), which may differ from whatever machine runs `docker build`. So:
 
 - **Image build** (`Dockerfile`): installs the pinned nightly toolchain (`rust-toolchain.toml`) and `libhdf5-dev`, then runs `cargo fetch --locked` to pre-download every dependency (including the git `rgb` crate) into the image. No compilation happens here.
-- **Container start** (`entrypoint.sh`): runs `RUSTFLAGS="-C target-cpu=native" cargo build --release --features cli --offline` (fully offline thanks to the pre-fetch — fast, ~tens of seconds to a few minutes, negligible against the 8h budget), then builds the index with `--reorder-egb` and runs the 15 tuned `(ef_search, lambda)` configs, writing to `/app/results/task3/`.
+- **Container start** (`entrypoint.sh`): runs `RUSTFLAGS="-C target-cpu=native" cargo build --release --features cli,multivec --offline` (fully offline thanks to the pre-fetch — fast, ~tens of seconds to a few minutes, negligible against the 8h budget), then builds a two-stage rerank index (`sisap_task3_rerank_build`, L1 fraction 0.75, M=32, efC=1000) and runs the 15 tuned `(kC, ef_search, lambda)` configs via `sisap_task3_rerank_search`, writing to `/app/results/task3/`.
 
 This guarantees `native` always matches the actual evaluation hardware, with no risk of an illegal-instruction (SIGILL) crash from CPU-feature mismatches, regardless of where the image is built.
 
@@ -128,4 +128,7 @@ docker run --rm \
 
 Verified end-to-end on `fiqa-dev` under these exact resource limits: all 15 result files written with correct `algo`/`buildtime`/`params` attrs, and the in-container compile correctly detects the host's SIMD features (confirmed via `objdump` — AVX-512 present on this dev machine, would be AVX2-only on the EPYC 7F72).
 
-Full-scale (`nq`) timing was separately verified at 8 cores/24GB (not via Docker, via a `systemd-run --scope -p CPUQuota=800% -p MemoryMax=24G` cgroup): build ~3.75h (peak RSS 11.2GB), leaving ~4.25h of margin for the search configs (~50s total) — well within the 8h budget.
+**Submission approach — two-stage rerank index:**
+`sisap_task3_rerank_build` builds an HNSW over L1-fraction-pruned (75%) sparse vectors as a fast first stage, plus saves the full-precision dataset for reranking. At search time, `sisap_task3_rerank_search` retrieves candidates from the pruned first stage and reranks with exact dot products. The 15 configs sweep `(kC, ef_search, lambda)` covering target recalls 0.895–0.970, measured 16–95% faster than the EGB+ET baseline in sequential benchmarks.
+
+Full-scale (`nq`) build timing was verified at 8 cores/24GB (via `systemd-run --scope -p CPUQuota=800% -p MemoryMax=24G` cgroup): rerank index build ~34 min (peak RSS ~11GB), well within the 8h budget.

@@ -64,6 +64,16 @@ name = "sisap_task3_search"
 path = "src/bin/sisap_task3_search.rs"
 required-features = ["sisap"]
 
+[[bin]]
+name = "sisap_task3_rerank_build"
+path = "src/bin/sisap_task3_rerank_build.rs"
+required-features = ["sisap", "multivec"]
+
+[[bin]]
+name = "sisap_task3_rerank_search"
+path = "src/bin/sisap_task3_rerank_search.rs"
+required-features = ["sisap", "multivec"]
+
 [lib]
 name = "kannolo"
 crate-type = ["cdylib", "lib"]

@@ -25,49 +25,53 @@ cd /app
 # will actually run the search, not the (possibly different) machine that
 # built the image.
 echo "Compiling kANNolo for the host CPU..."
-RUSTFLAGS="-C target-cpu=native" cargo build --release --features cli --offline
+RUSTFLAGS="-C target-cpu=native" cargo build --release --features cli,multivec --offline
 
 H5_FILE="/app/data/${DATASET}/${DATASET}.h5"
-INDEX_FILE="/tmp/${DATASET}.hnsw"
+INDEX_FILE="/tmp/${DATASET}_rerank.hnsw"
 
 M=32
 EFC=1000
+L1=0.75
 
-echo "Building index for ${DATASET}..."
-./target/release/sisap_task3_build \
+echo "Building rerank index for ${DATASET} (L1 fraction=${L1})..."
+./target/release/sisap_task3_rerank_build \
     --h5-file "$H5_FILE" --group train \
     --output-file "$INDEX_FILE" \
-    --m "$M" --ef-construction "$EFC" --reorder-egb
+    --m "$M" --ef-construction "$EFC" \
+    --l1-fraction "$L1"
 
-# (ef_search, lambda) pairs selected from results/task3/grids/best_nq_M32_efC1000.tsv
-# covering target accuracies 0.875 .. 0.945 in steps of 0.005.
+# 15 configs (kC, ef_search, lambda) selected from sequential grid search on NQ,
+# covering target recalls 0.895..0.970 in steps of ~0.005.
+# All use full query (h=9999) and alpha=0.25.
 CONFIGS=(
-    "30 0.04"
-    "31 0.04"
-    "32 0.04"
-    "30 0.05"
-    "31 0.05"
-    "30 0.06"
-    "35 0.05"
-    "30 0.07"
-    "31 0.07"
-    "30 0.08"
-    "32 0.08"
-    "30 0.09"
-    "37 0.08"
-    "32 0.10"
-    "36 0.10"
+    "50  50 0.01"
+    "50  54 0.01"
+    "50  54 0.02"
+    "50  54 0.03"
+    "60  60 0.02"
+    "60  64 0.02"
+    "75  75 0.01"
+    "60  60 0.04"
+    "60  60 0.05"
+    "75  79 0.03"
+    "75  79 0.04"
+    "75  87 0.04"
+    "75  87 0.05"
+    "75  83 0.07"
+    "75  83 0.09"
 )
 
 for CFG in "${CONFIGS[@]}"; do
-    read -r EF_SEARCH LAMBDA <<< "$CFG"
-    echo "--- ef_search=$EF_SEARCH lambda=$LAMBDA ---"
-    ./target/release/sisap_task3_search \
+    read -r KC EF_SEARCH LAMBDA <<< "$CFG"
+    echo "--- kC=$KC ef_search=$EF_SEARCH lambda=$LAMBDA ---"
+    ./target/release/sisap_task3_rerank_search \
         --h5-file "$H5_FILE" --query-group otest/queries \
-        --index-file "$INDEX_FILE" -k 30 --ef-search "$EF_SEARCH" \
-        --early-termination distance-adaptive --lambda "$LAMBDA" \
-        --algo-name kannolo-hnsw --output-dir /app/results/task3 \
-        --m "$M" --ef-construction "$EFC"
+        --index-file "$INDEX_FILE" -k 30 \
+        --k-candidates "$KC" --ef-search "$EF_SEARCH" \
+        --lambda "$LAMBDA" --alpha "0.25" --query-top-h "9999" \
+        --algo-name kannolo-hnsw-rerank --output-dir /app/results/task3 \
+        --m "$M" --ef-construction "$EFC" --l1-fraction "$L1"
 done
 
 echo "Done."
