@@ -23,12 +23,15 @@ jobs:
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@nightly
-    
+
+    - name: Install HDF5
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libhdf5-dev pkg-config clang
+
     - name: Test Rust build (baseline x86-64, no AVX)
       run: RUSTFLAGS="-C target-cpu=x86-64 -C target-feature=-avx,-avx2" cargo build --release
-    
+
     - name: Test Rust build (baseline x86-64)
       run: cargo build --release
-    
+
     - name: Test Rust build (native optimization)
       run: RUSTFLAGS="-C target-cpu=native" cargo build --release

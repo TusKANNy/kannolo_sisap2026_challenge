@@ -25,4 +25,4 @@ jobs:
       uses: dtolnay/rust-toolchain@nightly
     
     - name: Test Rust build
-      run: cargo build --release
+      run: cargo build --release --no-default-features
