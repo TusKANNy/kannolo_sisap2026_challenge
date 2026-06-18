@@ -13,6 +13,7 @@ H5_FILE=""
 OUTPUT_DIR=""
 TASK="task3"
 DATASET=""
+CONFIG_FILE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -25,16 +26,22 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# If --input was given, resolve glob and derive dataset name from filename
+# If --input was given, resolve glob and use it as the H5 path
 if [[ -n "$H5_FILE" ]]; then
     H5_FILE=$(echo $H5_FILE)  # expand glob if needed
-    DATASET=$(basename "$H5_FILE" .h5)
 fi
 
-# If config.json was provided, read task from it (no python3 needed — simple grep)
-if [[ -n "${CONFIG_FILE:-}" && -f "$CONFIG_FILE" ]]; then
-    _TASK=$(grep -oE '"task"\s*:\s*"[^"]+"' "$CONFIG_FILE" | grep -oE '[^"]+$' | tr -d '"')
+# If config.json was provided, read task and dataset_name from it (grep-based, no python3)
+if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
+    _TASK=$(grep -oE '"task"\s*:\s*"[^"]+"' "$CONFIG_FILE" | grep -oE '"[^"]+"\s*$' | tr -d '" ')
+    _DATASET=$(grep -oE '"dataset_name"\s*:\s*"[^"]+"' "$CONFIG_FILE" | grep -oE '"[^"]+"\s*$' | tr -d '" ')
     [[ -n "$_TASK" ]] && TASK="$_TASK"
+    [[ -n "$_DATASET" ]] && DATASET="$_DATASET"
+fi
+
+# Fallback: derive dataset name from H5 filename if still unset
+if [[ -z "$DATASET" && -n "$H5_FILE" ]]; then
+    DATASET=$(basename "$H5_FILE" .h5)
 fi
 
 # Fallback: if no H5_FILE set, construct from dataset name (legacy mode)
@@ -105,7 +112,7 @@ for CFG in "${CONFIGS[@]}"; do
         --index-file "$INDEX_FILE" -k 30 \
         --k-candidates "$KC" --ef-search "$EF_SEARCH" \
         --lambda "$LAMBDA" --alpha "0.25" --query-top-h "9999" \
-        --algo-name kannolo-hnsw-rerank --output-dir "${OUTPUT_DIR}/task3" \
+        --algo-name kannolo-hnsw-rerank --output-dir "${OUTPUT_DIR}" \
         --m "$M" --ef-construction "$EFC" --l1-fraction "$L1"
 done
 
