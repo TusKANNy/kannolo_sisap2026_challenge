@@ -286,3 +286,7 @@ $RECYCLE.BIN/
 /results
 /results_nq_docker
 /results_fiqa_rerank_docker
+/results_nq_rerank_docker
+SISAP_cfp.md
+SISAP_README.md
+SUBMISSION_GUIDELINE.md
