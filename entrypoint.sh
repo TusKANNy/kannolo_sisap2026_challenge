@@ -25,19 +25,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# If config.json was provided, read task and dataset from it
-if [[ -n "${CONFIG_FILE:-}" && -f "$CONFIG_FILE" ]]; then
-    TASK=$(python3 -c "import json,sys; d=json.load(open('$CONFIG_FILE')); print(d.get('task','task3'))")
-    DATASET=$(python3 -c "import json,sys; d=json.load(open('$CONFIG_FILE')); print(d.get('dataset_name',''))")
+# If --input was given, resolve glob and derive dataset name from filename
+if [[ -n "$H5_FILE" ]]; then
+    H5_FILE=$(echo $H5_FILE)  # expand glob if needed
+    DATASET=$(basename "$H5_FILE" .h5)
 fi
 
-# If --input was given, derive dataset name and H5 path from it
-if [[ -n "$H5_FILE" ]]; then
-    # H5_FILE may be a glob like /path/to/dataset/*.h5 — resolve it
-    H5_FILE=$(echo $H5_FILE)  # expand glob
-    if [[ -z "$DATASET" ]]; then
-        DATASET=$(basename "$H5_FILE" .h5)
-    fi
+# If config.json was provided, read task from it (no python3 needed — simple grep)
+if [[ -n "${CONFIG_FILE:-}" && -f "$CONFIG_FILE" ]]; then
+    _TASK=$(grep -oE '"task"\s*:\s*"[^"]+"' "$CONFIG_FILE" | grep -oE '[^"]+$' | tr -d '"')
+    [[ -n "$_TASK" ]] && TASK="$_TASK"
 fi
 
 # Fallback: if no H5_FILE set, construct from dataset name (legacy mode)
